@@ -18,6 +18,12 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "ha/esp_zigbee_ha_standard.h"
+#include "driver/gpio.h"
+
+// XIAO ESP32-C6 wifi switch 
+#define WIFI_ENABLE 3
+#define WIFI_ANT_CONFIG 14
+#define LED_BOOT 15
 
 #if !defined ZB_ED_ROLE
 #error Define ZB_ED_ROLE in idf.py menuconfig to compile light (End Device) source code.
@@ -27,7 +33,6 @@ static const char *TAG = "ESP_ZB_ON_OFF_LIGHT";
 /********************* Define functions **************************/
 static esp_err_t deferred_driver_init(void)
 {
-    light_driver_init(LIGHT_DEFAULT_OFF);
     return ESP_OK;
 }
 
@@ -97,7 +102,8 @@ static esp_err_t zb_attribute_handler(const esp_zb_zcl_set_attr_value_message_t 
             if (message->attribute.id == ESP_ZB_ZCL_ATTR_ON_OFF_ON_OFF_ID && message->attribute.data.type == ESP_ZB_ZCL_ATTR_TYPE_BOOL) {
                 light_state = message->attribute.data.value ? *(bool *)message->attribute.data.value : light_state;
                 ESP_LOGI(TAG, "Light sets to %s", light_state ? "On" : "Off");
-                light_driver_set_power(light_state);
+                gpio_set_level(LED_BOOT,light_state);
+                //light_driver_set_power(light_state);
             }
         }
     }
@@ -146,5 +152,33 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(nvs_flash_init());
     ESP_ERROR_CHECK(esp_zb_platform_config(&config));
+
+    
+    // See https://wiki.seeedstudio.com/xiao_esp32c6_getting_started/ on how to enable the antenna of SEED xiao esp32-c6
+
+    ESP_LOGI(TAG, "enabling internal antenna");
+//zero-initialize the config structure.
+    gpio_config_t io_conf = {};
+    //disable interrupt
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    //set as output mode
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    //bit mask of the pins that you want to set,e.g.GPIO18/19
+    io_conf.pin_bit_mask = ((1ULL<<WIFI_ENABLE) | (1ULL<<WIFI_ANT_CONFIG) | (1ULL<<LED_BOOT));
+    //disable pull-down mode
+    io_conf.pull_down_en = 0;
+    //disable pull-up mode
+    io_conf.pull_up_en = 0;
+    //configure GPIO with the given settings
+    gpio_config(&io_conf);
+
+    gpio_set_level(WIFI_ENABLE,0);
+    vTaskDelay(100/portTICK_PERIOD_MS);
+    gpio_set_level(WIFI_ANT_CONFIG,0);
+
+    ESP_LOGI(TAG, "done enabling internal antenna");
+
+    gpio_set_level(LED_BOOT,0);
+
     xTaskCreate(esp_zb_task, "Zigbee_main", 4096, NULL, 5, NULL);
 }
